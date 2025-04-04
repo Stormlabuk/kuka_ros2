@@ -1,120 +1,128 @@
 package application;
 
-
 import com.kuka.roboticsAPI.applicationModel.RoboticsAPIApplication;
-import com.kuka.roboticsAPI.motionModel.IMotionContainer;
-import com.kuka.roboticsAPI.motionModel.BasicMotions;
-import com.kuka.roboticsAPI.deviceModel.LBR;
 import com.kuka.roboticsAPI.deviceModel.JointPosition;
+import com.kuka.roboticsAPI.deviceModel.LBR;
+import com.kuka.connectivity.motionModel.smartServo.SmartServo;
+import com.kuka.connectivity.motionModel.smartServo.ISmartServoRuntime;
+
 import javax.inject.Inject;
+import java.util.Arrays;
 
-
+/**
+ * Velocity-like control using SmartServo by incrementally adjusting joint positions
+ * based on desired velocity (interpreted from latestCommand in RobotData).
+ */
 public class Ros2VelocityControl extends RoboticsAPIApplication {
-	
-    // ***** Properties
 
     @Inject
-    private LBR robot;                                  // Reference to the robot
-    private RobotData robotData;                        // Shared data container between threads
-    private TransmitData transmitData;                  // Thread for transmitting data
-    private ReceiveData receiveData;                    // Thread for receiving data
-    private HeartBeat heartBeat;                        // Thread to monitor connection heartbeat
-    private Thread transmitThread;                      // Thread object for transmitting data
-    private Thread receiveThread;                       // Thread object for receiving data
-    private Thread heartBeatThread;                     // Thread object for heartbeat monitoring
-    private String ipAddress = "172.31.1.150";          // PC IP address
-    private int sendPort = 5005;                        // Port to send data
-    private int receivePort = 30300;                    // Port to receive commands
-    private int heartbeatPort = 30301;                  // Port to receive heartbeat
-    private volatile boolean running = true;            // Control flag for the main loop
+    private LBR robot;
 
-    // Override the run method of the init interface
+    private RobotData robotData;
+    private TransmitData transmitData;
+    private ReceiveData receiveData;
+    private HeartBeat heartBeat;
+    private Thread transmitThread;
+    private Thread receiveThread;
+    private Thread heartBeatThread;
+
+    private String ipAddress = "172.31.1.150";
+    private int sendPort = 5005;
+    private int receivePort = 30300;
+    private int heartbeatPort = 30301;
+    private volatile boolean running = true;
+
+    private final double Kp = 30;          // Proportional gain
+    private final double loopDt = 0.001;    // 1 ms loop
+
     @Override
     public void initialize() {
         try {
-            // Initialise the shared RobotData object
             robotData = new RobotData();
-
-            // Initialise TransmitData, ReceiveData, and HeartBeat
             transmitData = new TransmitData(robotData, robot, ipAddress, sendPort, this);
             receiveData = new ReceiveData(robotData, robot, receivePort, this);
-            heartBeat = new HeartBeat(heartbeatPort, this, robotData); // Pass robotData
-
-            getLogger().info("Initialisation Complete");
-
+            heartBeat = new HeartBeat(heartbeatPort, this, robotData);
         } catch (Exception e) {
-            getLogger().error("Initialisation failed: " + e.getMessage(), e);
+            getLogger().error("Initialization failed: " + e.getMessage(), e);
         }
     }
 
-    // Override the run method of the Runnable interface
     @Override
     public void run() {
-        // Start the threads for transmitting, receiving data, and heartbeat monitoring
         transmitThread = new Thread(transmitData);
         receiveThread = new Thread(receiveData);
         heartBeatThread = new Thread(heartBeat);
-
         transmitThread.start();
-        getLogger().info("Transmit thread started");
-
         receiveThread.start();
-        getLogger().info("Receive thread started");
-
         heartBeatThread.start();
-        getLogger().info("Heartbeat thread started");
 
         try {
+            JointPosition initialPosition = robot.getCurrentJointPosition();
+            SmartServo smartServo = new SmartServo(initialPosition);
+            double RelVel = 1.0;
+            smartServo.setJointVelocityRel(RelVel);
+            getLogger().info(String.valueOf(RelVel));
+            robot.moveAsync(smartServo);
+            ISmartServoRuntime runtime = smartServo.getRuntime();
+            
+
             while (running) {
-                // Check if the heartbeat is lost
                 if (robotData.isHeartbeatLost()) {
-                    getLogger().info("Heartbeat lost, shutting down application.");
+                    getLogger().info("Heartbeat lost, shutting down.");
                     running = false;
                     break;
                 }
-                
-                // Check if a new command has been received
-                JointPosition latestCommand = robotData.getLatestCommand();
-                
-                // Do some Velocity Control
 
+                double[] desiredVel = robotData.getVelocityDemand();
+                double[] actualVel = robotData.getCurrentJointVelocities();
+
+                if (desiredVel != null && actualVel != null) {
+                    double[] velocityError = new double[robot.getJointCount()];
+                    double[] newPos = new double[robot.getJointCount()];
+                    JointPosition currentPos = robot.getCurrentJointPosition();
+
+                    for (int i = 0; i < robot.getJointCount(); i++) {
+                        velocityError[i] = desiredVel[i] - actualVel[i];
+                        double delta = Kp * velocityError[i] * loopDt;
+
+                        // Clamp step size
+                        double maxStep = 0.1;
+                        delta = Math.max(-maxStep, Math.min(maxStep, delta));
+
+                        newPos[i] = currentPos.get(i) + delta;
+                    }
+
+                    robotData.setMoving(true);
+                    runtime.setDestination(new JointPosition(newPos));
+
+                }
+
+                Thread.sleep((long) (loopDt*1000));
             }
-
         } catch (Exception e) {
-            getLogger().error("Exception in main run loop: " + e.getMessage(), e);
-
+            getLogger().error("Main loop exception: " + e.getMessage(), e);
         } finally {
-            // Graceful shutdown of threads and resources
             shutdown();
         }
     }
- 
-    // Override the kill method of the Runnable interface
+
     @Override
     public void dispose() {
-        // Ensure resources are cleaned up on application exit
         shutdown();
         super.dispose();
     }
 
-    // method for safe shutdown
     private void shutdown() {
-        // Stop the threads
-        transmitData.stop();
-        receiveData.stop();
-        heartBeat.stop();
-
         try {
-            // Wait for the threads to finish
+            transmitData.stop();
+            receiveData.stop();
+            heartBeat.stop();
             transmitThread.join();
             receiveThread.join();
             heartBeatThread.join();
-
         } catch (InterruptedException e) {
-            getLogger().error("Thread interruption during shutdown: " + e.getMessage(), e);
+            getLogger().error("Shutdown interruption: " + e.getMessage(), e);
             Thread.currentThread().interrupt();
         }
-
-        getLogger().info("Shutdown Complete");
     }
 }
