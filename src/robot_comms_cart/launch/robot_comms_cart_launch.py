@@ -27,6 +27,13 @@ def generate_launch_description():
         output='screen'
     )
 
+    pause_node = Node(        
+        package='robot_comms_cart',
+        executable='pause_controller',
+        name='pause_node',
+        output='screen'
+    )
+
     delayed_transmit_node = TimerAction(
         period=0.05,  # 50 ms delay
         actions=[transmit_node]
@@ -36,4 +43,5 @@ def generate_launch_description():
         receive_node,
         heartbeat_node,
         delayed_transmit_node,
+        pause_node
     ])

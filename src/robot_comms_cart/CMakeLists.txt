@@ -11,8 +11,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(kuka_messages REQUIRED)
 find_package(geometry_msgs REQUIRED)
+
 
 # Include directories
 include_directories(include)
@@ -21,6 +23,7 @@ include_directories(include)
 add_executable(transmit_robot src/transmit_robot.cpp)
 add_executable(receive_robot_node src/receive_robot.cpp)
 add_executable(heartbeat_node src/heartbeat.cpp)
+add_executable(pause_controller src/pause_controller.cpp)
 
 # Link libraries
 ament_target_dependencies(transmit_robot
@@ -43,17 +46,30 @@ ament_target_dependencies(heartbeat_node
   rclcpp
 )
 
+ament_target_dependencies(pause_controller
+  rclcpp
+  std_msgs
+  std_srvs
+)
+
 # Install targets
 install(TARGETS
   transmit_robot
   receive_robot_node
   heartbeat_node
+  pause_controller
   DESTINATION lib/${PROJECT_NAME}
 )
 
 # Install launch files
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
+)
+
+# Install Python scripts
+install(PROGRAMS
+  scripts/cartesian_csv_player.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()
