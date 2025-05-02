@@ -7,7 +7,7 @@ import java.net.SocketTimeoutException;
 import java.io.IOException;
 import com.kuka.roboticsAPI.applicationModel.RoboticsAPIApplication;
 
-public class HeartBeat implements Runnable {
+public class HeartBeatTool implements Runnable {
 
     private RoboticsAPIApplication app;
     private volatile boolean connected = false;
@@ -23,9 +23,9 @@ public class HeartBeat implements Runnable {
     private final int checkInterval = 25;   // milliseconds
 
     private DatagramSocket socket;
-    private RobotData robotData;
+    private RobotDataTool robotData;
 
-    public HeartBeat(int port, RoboticsAPIApplication app, RobotData robotData) {
+    public HeartBeatTool(int port, RoboticsAPIApplication app, RobotDataTool robotData) {
         this.app = app;
         this.robotData = robotData;
         try {

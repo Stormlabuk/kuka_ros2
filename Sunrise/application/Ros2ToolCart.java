@@ -3,22 +3,26 @@ package application;
 import com.kuka.roboticsAPI.applicationModel.RoboticsAPIApplication;
 import com.kuka.roboticsAPI.deviceModel.LBR;
 import com.kuka.roboticsAPI.geometricModel.Frame;
+import com.kuka.roboticsAPI.geometricModel.Tool;
 import com.kuka.roboticsAPI.motionModel.IMotionContainer;
 import com.kuka.connectivity.motionModel.smartServo.SmartServo;
 import com.kuka.connectivity.motionModel.smartServo.ISmartServoRuntime;
 
 import javax.inject.Inject;
 
-public class Ros2CartesianControl extends RoboticsAPIApplication {
+public class Ros2ToolCart extends RoboticsAPIApplication {
 
     @Inject
     private LBR robot;
 
-    private RobotData robotData;
-    private TransmitCartesian transmitData;
-    private ReceiveCartesian receiveData;
-    private HeartBeat heartBeat;
-    private PausedStatus pauseStatus;
+    @Inject
+    private Tool LoadCell;
+
+    private RobotDataTool robotData;
+    private TransmitToolCart transmitData;
+    private ReceiveToolCart receiveData;
+    private HeartBeatTool heartBeat;
+    private PausedStatusTool pauseStatus;
 
     private Thread transmitThread;
     private Thread receiveThread;
@@ -35,17 +39,17 @@ public class Ros2CartesianControl extends RoboticsAPIApplication {
     @Override
     public void initialize() {
         try {
-            robotData = new RobotData();
+            LoadCell.attachTo(robot.getFlange());
+            robotData = new RobotDataTool();
 
-            transmitData = new TransmitCartesian(robotData, robot, ipAddress, sendPort, this);
-            receiveData = new ReceiveCartesian(robotData, robot, receivePort, this);
-            heartBeat = new HeartBeat(heartbeatPort, this, robotData);
-            pauseStatus = new PausedStatus(pausePort, this, robotData);
+            transmitData = new TransmitToolCart(robotData, robot, ipAddress, sendPort, this, LoadCell);
+            receiveData = new ReceiveToolCart(robotData, robot, receivePort, this);
+            heartBeat = new HeartBeatTool(heartbeatPort, this, robotData);
+            pauseStatus = new PausedStatusTool(pausePort, this, robotData);
 
-            getLogger().info("Initialisation Complete");
-
+            getLogger().info("Initialization complete.");
         } catch (Exception e) {
-            getLogger().error("Initialisation failed: " + e.getMessage(), e);
+            getLogger().error("Initialization failed: " + e.getMessage(), e);
         }
     }
 
@@ -57,16 +61,9 @@ public class Ros2CartesianControl extends RoboticsAPIApplication {
         pauseThread = new Thread(pauseStatus);
 
         transmitThread.start();
-        getLogger().info("Transmit thread started");
-
         receiveThread.start();
-        getLogger().info("Receive thread started");
-
         heartBeatThread.start();
-        getLogger().info("Heartbeat thread started");
-
         pauseThread.start();
-        getLogger().info("PauseStatus thread started");
 
         try {
             SmartServo smartServo = new SmartServo(robot.getCurrentJointPosition());
@@ -76,42 +73,30 @@ public class Ros2CartesianControl extends RoboticsAPIApplication {
             IMotionContainer motionContainer = robot.moveAsync(smartServo);
             ISmartServoRuntime runtime = smartServo.getRuntime();
 
-            // set initial Cartesian target to current position
-            Frame initialPose = robot.getCurrentCartesianPosition(robot.getFlange());
+            Frame initialPose = robot.getCurrentCartesianPosition(LoadCell.getFrame("TCP"));
             robotData.setLatestCartesianCommand(initialPose);
-            getLogger().info("Initial Cartesian pose set as target: " + initialPose.toString());
+            getLogger().info("Initial TCP pose set: " + initialPose);
 
             while (running) {
                 if (robotData.isHeartbeatLost()) {
-                    getLogger().warn("Heartbeat lost, shutting down");
+                    getLogger().warn("Heartbeat lost. Stopping motion.");
                     break;
                 }
 
                 Frame cartesianTarget = robotData.getLatestCartesianCommand();
+                if (cartesianTarget != null) {
+                    runtime.setDestination(cartesianTarget);
+                }
 
-               // if (!robotData.isPaused()) {
-                    //runtime.updateWithRealtimeSystem();
-
-                    if (cartesianTarget != null) {
-                        runtime.setDestination(cartesianTarget);
-                        //robotData.resetLatestCartesianCommand();
-                    } //else {
-                        
-                        //Frame fallbackPose = robot.getCurrentCartesianPosition(robot.getFlange());
-                        //runtime.setDestination(fallbackPose);
-                    //}
-                //}
-
-                Frame currentPose = robot.getCurrentCartesianPosition(robot.getFlange());
-                robotData.setCurrentCartesianPose(currentPose);
+                Frame currentPose = robot.getCurrentCartesianPosition(LoadCell.getFrame("TCP"));
+                robotData.setCurrentToolCartesianPose(currentPose);
 
                 Thread.sleep(1);
             }
 
             motionContainer.cancel();
-
         } catch (Exception e) {
-            getLogger().error("Exception in main run loop: " + e.getMessage(), e);
+            getLogger().error("Run exception: " + e.getMessage(), e);
         } finally {
             shutdown();
         }
@@ -135,10 +120,10 @@ public class Ros2CartesianControl extends RoboticsAPIApplication {
             heartBeatThread.join();
             pauseThread.join();
         } catch (InterruptedException e) {
-            getLogger().error("Thread interruption during shutdown: " + e.getMessage(), e);
+            getLogger().error("Shutdown interrupted: " + e.getMessage(), e);
             Thread.currentThread().interrupt();
         }
 
-        getLogger().info("Shutdown Complete");
+        getLogger().info("Shutdown complete.");
     }
 }

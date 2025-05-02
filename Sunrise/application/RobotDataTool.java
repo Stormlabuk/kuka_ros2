@@ -6,8 +6,7 @@ import com.kuka.roboticsAPI.geometricModel.Frame;
 /**
  * Shared data structure for thread-safe communication between components.
  */
-public class RobotData {
-
+public class RobotDataTool {
     private volatile JointPosition latestCommand = null;
     private volatile JointPosition currentJointPositions = null;
     private volatile JointPosition previousJointPositions = null;
@@ -16,10 +15,15 @@ public class RobotData {
     private volatile boolean moving = false;
     private volatile boolean heartbeatLost = false;
     private volatile double[] velocityDemand = null;
+
     private volatile Frame latestCartesianCommand = null;
-    private volatile Frame currentCartesianPose = null;
+
+    private volatile Frame currentCartesianPose = null;        // Flange pose
+    private volatile Frame currentToolCartesianPose = null;    // Tool TCP pose
+
     private volatile boolean paused = false;
 
+    // Joint commands
     public synchronized JointPosition getLatestCommand() {
         return latestCommand;
     }
@@ -98,6 +102,7 @@ public class RobotData {
         velocityDemand = temp;
     }
 
+    // Cartesian commands
     public synchronized Frame getLatestCartesianCommand() {
         return latestCartesianCommand;
     }
@@ -110,6 +115,7 @@ public class RobotData {
         this.latestCartesianCommand = null;
     }
 
+    // Flange Cartesian pose
     public synchronized Frame getCurrentCartesianPose() {
         return currentCartesianPose;
     }
@@ -118,6 +124,16 @@ public class RobotData {
         this.currentCartesianPose = pose;
     }
 
+    // Tool TCP Cartesian pose
+    public synchronized Frame getCurrentToolCartesianPose() {
+        return currentToolCartesianPose;
+    }
+
+    public synchronized void setCurrentToolCartesianPose(Frame pose) {
+        this.currentToolCartesianPose = pose;
+    }
+
+    // Pause state
     public synchronized boolean isPaused() {
         return paused;
     }
